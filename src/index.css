@@ -1,0 +1,55 @@
+@import url("https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+body {
+  margin: 0;
+  background: #092c78;
+  color: #ffffff;
+  font-family: "Space Grotesk", Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+table {
+  font-family: "Space Grotesk", Arial, Helvetica, sans-serif;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+.tech-slider {
+  appearance: none;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #0ea5e9, #facc15);
+  outline: none;
+}
+
+.tech-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid #38bdf8;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.75);
+  cursor: pointer;
+}
+
+.tech-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid #38bdf8;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.75);
+  cursor: pointer;
+}
