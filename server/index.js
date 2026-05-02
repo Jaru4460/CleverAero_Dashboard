@@ -50,10 +50,81 @@ const PINS = {
   predStatus: "v27",
 };
 
+// Cache ล่าสุดที่เคยอ่านได้ ใช้กันหน้าเว็บพังถ้า Blynk error ชั่วคราว
+const lastGoodRaw = {
+  pm25: "0",
+  fanStatus: "0",
+  modeSelect: "0",
+  aqi: "0",
+
+  pm25Chart: "0",
+  pm25History: "0",
+  customThreshold: "20",
+
+  alertLimit: "20",
+  filterHealth: "100",
+  airStatus: "WAITING",
+  systemStatus: "Waiting Sensor",
+  sensorStatus: "WAITING",
+
+  efficiency: "0",
+  timeToSafe: "0",
+  removalRate: "0",
+  safeTarget: "25",
+  cleaningStatus: "WAITING",
+
+  energyUsed: "0",
+  energySaved: "0",
+  fanPowerW: "2.16",
+  roomVolume: "30",
+  cadrEstimate: "0",
+
+  pm25Pred5m: "0",
+  predTrend: "NO DATA",
+  predStatus: "INSUFFICIENT DATA",
+};
+
 function requireToken() {
   if (!BLYNK_TOKEN) {
-    throw new Error("Missing BLYNK_AUTH_TOKEN in .env file");
+    throw new Error("Missing BLYNK_AUTH_TOKEN in Render/Local environment");
   }
+}
+
+function extractBlynkError(text) {
+  try {
+    const parsed = JSON.parse(text);
+
+    if (parsed?.error?.message) {
+      return parsed.error.message;
+    }
+
+    if (parsed?.message) {
+      return parsed.message;
+    }
+
+    if (parsed?.error) {
+      return typeof parsed.error === "string"
+        ? parsed.error
+        : JSON.stringify(parsed.error);
+    }
+
+    return text;
+  } catch {
+    return text;
+  }
+}
+
+function isErrorLikeText(text) {
+  if (!text) return false;
+
+  const lowerText = String(text).toLowerCase();
+
+  return (
+    lowerText.includes("error") ||
+    lowerText.includes("limit reached") ||
+    lowerText.includes("invalid token") ||
+    lowerText.includes("device is offline")
+  );
 }
 
 async function getBlynkValue(pin) {
@@ -64,7 +135,11 @@ async function getBlynkValue(pin) {
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(text || `Blynk GET failed for ${pin}`);
+    throw new Error(extractBlynkError(text) || `Blynk GET failed for ${pin}`);
+  }
+
+  if (isErrorLikeText(text)) {
+    throw new Error(extractBlynkError(text) || `Blynk returned error for ${pin}`);
   }
 
   return text;
@@ -81,7 +156,15 @@ async function updateBlynkValue(pin, value) {
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(text || `Blynk UPDATE failed for ${pin}`);
+    throw new Error(
+      extractBlynkError(text) || `Blynk UPDATE failed for ${pin}`
+    );
+  }
+
+  if (isErrorLikeText(text)) {
+    throw new Error(
+      extractBlynkError(text) || `Blynk returned error while updating ${pin}`
+    );
   }
 
   return text;
@@ -92,22 +175,55 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
-async function getManyPins(pinMap) {
+async function getPinWithFallback(key, pin) {
+  try {
+    const value = await getBlynkValue(pin);
+    lastGoodRaw[key] = value;
+
+    return {
+      key,
+      value,
+      ok: true,
+      warning: null,
+    };
+  } catch (error) {
+    return {
+      key,
+      value: lastGoodRaw[key],
+      ok: false,
+      warning: `${key} (${pin}): ${error.message}`,
+    };
+  }
+}
+
+async function getManyPinsWithFallback(pinMap) {
   const entries = Object.entries(pinMap);
 
-  const values = await Promise.all(
-    entries.map(async ([key, pin]) => {
-      const value = await getBlynkValue(pin);
-      return [key, value];
-    })
+  const results = await Promise.all(
+    entries.map(([key, pin]) => getPinWithFallback(key, pin))
   );
 
-  return Object.fromEntries(values);
+  const raw = {};
+  const warnings = [];
+
+  for (const result of results) {
+    raw[result.key] = result.value;
+
+    if (!result.ok && result.warning) {
+      warnings.push(result.warning);
+    }
+  }
+
+  return {
+    raw,
+    warnings,
+  };
 }
 
 app.get("/", (req, res) => {
   res.json({
     message: "CleverAero backend is running",
+    apiStatus: "ok",
     pins: PINS,
     modeMapping: {
       0: "Auto",
@@ -119,7 +235,7 @@ app.get("/", (req, res) => {
 
 app.get("/api/blynk/status", async (req, res) => {
   try {
-    const raw = await getManyPins({
+    const { raw, warnings } = await getManyPinsWithFallback({
       pm25: PINS.pm25,
       fanStatus: PINS.fanStatus,
       modeSelect: PINS.modeSelect,
@@ -153,6 +269,9 @@ app.get("/api/blynk/status", async (req, res) => {
     });
 
     res.json({
+      apiHealth: warnings.length === 0 ? "ok" : "degraded",
+      warnings,
+
       // Core data
       pm25: toNumber(raw.pm25),
       fanStatus: toNumber(raw.fanStatus),
@@ -167,16 +286,16 @@ app.get("/api/blynk/status", async (req, res) => {
 
       // Status strings
       filterHealth: toNumber(raw.filterHealth, 0),
-      airStatus: raw.airStatus,
-      systemStatus: raw.systemStatus,
-      sensorStatus: raw.sensorStatus,
+      airStatus: raw.airStatus || "WAITING",
+      systemStatus: raw.systemStatus || "Waiting Sensor",
+      sensorStatus: raw.sensorStatus || "WAITING",
 
       // Performance insights
       efficiency: toNumber(raw.efficiency),
       timeToSafe: toNumber(raw.timeToSafe),
       removalRate: toNumber(raw.removalRate),
       safeTarget: toNumber(raw.safeTarget, 25),
-      cleaningStatus: raw.cleaningStatus,
+      cleaningStatus: raw.cleaningStatus || "WAITING",
 
       // Energy / configuration insights
       energyUsed: toNumber(raw.energyUsed),
@@ -187,8 +306,8 @@ app.get("/api/blynk/status", async (req, res) => {
 
       // Prediction insights
       pm25Pred5m: toNumber(raw.pm25Pred5m),
-      predTrend: raw.predTrend,
-      predStatus: raw.predStatus,
+      predTrend: raw.predTrend || "NO DATA",
+      predStatus: raw.predStatus || "INSUFFICIENT DATA",
 
       raw,
       modeMapping: {
@@ -276,6 +395,7 @@ app.post("/api/blynk/threshold", async (req, res) => {
     }
 
     await updateBlynkValue(PINS.customThreshold, threshold);
+    lastGoodRaw.customThreshold = String(threshold);
 
     res.json({
       success: true,
@@ -300,24 +420,28 @@ app.post("/api/blynk/setting", async (req, res) => {
         min: 5,
         max: 300,
         label: "Alert Limit",
+        cacheKey: "alertLimit",
       },
       safeTarget: {
         pin: PINS.safeTarget,
         min: 5,
         max: 100,
         label: "Safe PM Target",
+        cacheKey: "safeTarget",
       },
       fanPowerW: {
         pin: PINS.fanPowerW,
         min: 0.1,
         max: 50,
         label: "Fan Power",
+        cacheKey: "fanPowerW",
       },
       roomVolume: {
         pin: PINS.roomVolume,
         min: 5,
         max: 200,
         label: "Room Volume",
+        cacheKey: "roomVolume",
       },
     };
 
@@ -343,6 +467,7 @@ app.post("/api/blynk/setting", async (req, res) => {
     }
 
     await updateBlynkValue(setting.pin, numericValue);
+    lastGoodRaw[setting.cacheKey] = String(numericValue);
 
     res.json({
       success: true,
@@ -375,7 +500,6 @@ app.post("/api/blynk/reset", async (req, res) => {
 
     const pin = resetMap[type];
 
-    // Pulse reset: send 1 then return to 0
     await updateBlynkValue(pin, 1);
     await new Promise((resolve) => setTimeout(resolve, 400));
     await updateBlynkValue(pin, 0);
@@ -394,5 +518,5 @@ app.post("/api/blynk/reset", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`CleverAero backend running at http://localhost:${PORT}`);
+  console.log(`CleverAero backend running on port ${PORT}`);
 });
