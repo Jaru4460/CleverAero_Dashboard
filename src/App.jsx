@@ -87,6 +87,58 @@ function MiniInsight({ title, value, description, color }) {
   );
 }
 
+function AlertCenter({ alerts }) {
+  if (!alerts || alerts.length === 0) {
+    return (
+      <section style={styles.alertCenterSafe}>
+        <div>
+          <p style={styles.cardLabel}>Alert Center</p>
+          <h3 style={styles.alertSafeTitle}>All systems normal</h3>
+          <p style={styles.cardSubtitle}>
+            No dashboard warning is currently active.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={styles.alertCenter}>
+      <div style={styles.alertHeader}>
+        <div>
+          <p style={styles.cardLabel}>Alert Center</p>
+          <h3 style={styles.alertTitle}>Active Dashboard Alerts</h3>
+        </div>
+
+        <span style={styles.alertCount}>{alerts.length}</span>
+      </div>
+
+      <div style={styles.alertList}>
+        {alerts.map((alert, index) => (
+          <div
+            key={`${alert.title}-${index}`}
+            style={{
+              ...styles.alertItem,
+              borderColor: alert.color,
+              backgroundColor: alert.background,
+            }}
+          >
+            <div style={{ ...styles.alertIcon, backgroundColor: alert.color }}>
+              !
+            </div>
+
+            <div>
+              <h4 style={styles.alertItemTitle}>{alert.title}</h4>
+              <p style={styles.alertMessage}>{alert.message}</p>
+              <p style={styles.alertMeta}>{alert.meta}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function SectionTitle({ title, subtitle }) {
   return (
     <div style={styles.sectionHeadingBlock}>
@@ -315,12 +367,12 @@ function App() {
   const experimentActiveRef = useRef(false);
   const hasLoadedInitialSettingsRef = useRef(false);
 
-  async function fetchBlynkStatus() {
+  async function fetchBlynkStatus(options = {}) {
     try {
       setIsLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/api/blynk/status`);
-      const result = await response.json();
+      const forceRefresh = options.force === true ? "?refresh=1" : "";
+      const response = await fetch(`${API_BASE_URL}/api/device/latest`);
 
       if (!response.ok) {
         throw new Error(result.error || "Failed to fetch Blynk data");
@@ -350,6 +402,9 @@ function App() {
 
       const reading = {
         time: getCurrentTime(),
+
+        apiHealth: result.apiHealth || "ok",
+        warnings: Array.isArray(result.warnings) ? result.warnings : [],
 
         pm25: Number(result.pm25),
         fanStatus: Number(result.fanStatus),
@@ -414,7 +469,7 @@ function App() {
 
     const intervalId = setInterval(() => {
       fetchBlynkStatus();
-    }, 3000);
+    }, 15000);
 
     return () => clearInterval(intervalId);
   }, [isLive]);
@@ -448,6 +503,9 @@ function App() {
   const blynkPredPM5m = latestStatus?.pm25Pred5m ?? 0;
   const blynkPredTrend = latestStatus?.predTrend ?? "NO DATA";
   const blynkPredStatus = latestStatus?.predStatus ?? "INSUFFICIENT DATA";
+  
+  const apiHealth = latestStatus?.apiHealth ?? "ok";
+  const apiWarnings = latestStatus?.warnings ?? [];
 
   const initialPM25 = data.length > 0 ? data[0].pm25 : currentPM25;
   const totalReduction = Math.max(initialPM25 - currentPM25, 0);
@@ -504,6 +562,105 @@ function App() {
 
     return "Waiting for system mode data.";
   }, [modeSelect, currentPM25, customThreshold]);
+
+  const dashboardAlerts = useMemo(() => {
+    const alerts = [];
+
+    if (apiHealth === "degraded" || apiWarnings.length > 0) {
+      alerts.push({
+        title: "Blynk API warning",
+        message:
+          "Some Blynk values could not be updated, so the dashboard may be using the latest cached data.",
+        meta: apiWarnings.slice(0, 2).join(" | ") || "Backend degraded mode",
+        color: "#facc15",
+        background: "rgba(250, 204, 21, 0.13)",
+      });
+    }
+
+    if (currentPM25 > blynkAlertLimit) {
+      alerts.push({
+        title: "High PM2.5 detected",
+        message: `Current PM2.5 is ${currentPM25} µg/m³, which is above the alert limit of ${blynkAlertLimit} µg/m³.`,
+        meta: "Recommended action: keep purification active and avoid unnecessary exposure.",
+        color: "#ef4444",
+        background: "rgba(239, 68, 68, 0.16)",
+      });
+    }
+
+    if (
+      typeof blynkPredStatus === "string" &&
+      blynkPredStatus.toUpperCase().includes("RISK")
+    ) {
+      alerts.push({
+        title: "Prediction risk",
+        message: `The PM2.5 prediction system reports: ${blynkPredStatus}.`,
+        meta: `Predicted PM2.5 in 5 minutes: ${formatNumber(
+          blynkPredPM5m,
+          1
+        )} µg/m³`,
+        color: "#fb923c",
+        background: "rgba(251, 146, 60, 0.15)",
+      });
+    }
+
+    if (blynkFilterHealth > 0 && blynkFilterHealth <= 30) {
+      alerts.push({
+        title: "Filter health is low",
+        message: `Filter health is currently ${blynkFilterHealth}%.`,
+        meta: "Recommended action: inspect or replace the filter soon.",
+        color: "#ef4444",
+        background: "rgba(239, 68, 68, 0.16)",
+      });
+    } else if (blynkFilterHealth > 30 && blynkFilterHealth <= 50) {
+      alerts.push({
+        title: "Filter should be monitored",
+        message: `Filter health is currently ${blynkFilterHealth}%.`,
+        meta: "The filter is still usable, but maintenance should be planned.",
+        color: "#facc15",
+        background: "rgba(250, 204, 21, 0.13)",
+      });
+    }
+
+    if (
+      blynkSensorStatus &&
+      blynkSensorStatus !== "OK" &&
+      blynkSensorStatus !== "WAITING"
+    ) {
+      alerts.push({
+        title: "Sensor status warning",
+        message: `PMS5003 sensor status: ${blynkSensorStatus}.`,
+        meta: "Check sensor wiring, power, and serial communication.",
+        color: "#ef4444",
+        background: "rgba(239, 68, 68, 0.16)",
+      });
+    }
+
+    if (
+      blynkSystemStatus &&
+      typeof blynkSystemStatus === "string" &&
+      blynkSystemStatus.toUpperCase().includes("ERROR")
+    ) {
+      alerts.push({
+        title: "System status error",
+        message: `System status: ${blynkSystemStatus}.`,
+        meta: "Check Arduino serial monitor and Blynk datastream status.",
+        color: "#ef4444",
+        background: "rgba(239, 68, 68, 0.16)",
+      });
+    }
+
+    return alerts;
+  }, [
+    apiHealth,
+    apiWarnings,
+    currentPM25,
+    blynkAlertLimit,
+    blynkPredStatus,
+    blynkPredPM5m,
+    blynkFilterHealth,
+    blynkSensorStatus,
+    blynkSystemStatus,
+  ]);
 
   const experimentSummary = useMemo(() => {
     if (experimentData.length === 0) {
@@ -585,6 +742,18 @@ function App() {
         throw new Error(result.error || "Failed to update fan");
       }
 
+      setLatestStatus((previousStatus) => {
+        if (!previousStatus) return previousStatus;
+
+      return {
+        ...previousStatus,
+        fanStatus: value,
+      };
+    });
+
+await new Promise((resolve) => setTimeout(resolve, 800));
+await fetchBlynkStatus({ force: true });
+
       await fetchBlynkStatus();
     } catch (error) {
       setErrorMessage(error.message);
@@ -611,7 +780,18 @@ function App() {
         throw new Error(result.error || "Failed to update mode");
       }
 
-      await fetchBlynkStatus();
+      setLatestStatus((previousStatus) => {
+        if (!previousStatus) return previousStatus;
+
+        return {
+          ...previousStatus,
+          modeSelect: value,
+        };
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      await fetchBlynkStatus({ force: true });
+
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -863,6 +1043,8 @@ function App() {
           </div>
         )}
 
+        <AlertCenter alerts={dashboardAlerts} />
+
         {activePage === "overview" && (
           <main style={styles.content}>
             <section style={styles.heroGrid}>
@@ -914,7 +1096,7 @@ function App() {
                 <div>
                   <h2 style={styles.sectionTitle}>Live PM2.5 Line Graph</h2>
                   <p style={styles.sectionSubtitle}>
-                    Readings are fetched from Blynk every 3 seconds through the
+                    Readings are fetched from Blynk every 15 seconds through the
                     local backend.
                   </p>
                 </div>
@@ -1836,6 +2018,102 @@ const styles = {
     borderRadius: "18px",
     padding: "14px",
     color: "#fecaca",
+  },
+
+  alertCenter: {
+    marginBottom: "18px",
+    backgroundColor: "rgba(8, 33, 94, 0.74)",
+    border: "1px solid rgba(255,255,255,0.25)",
+    borderRadius: "24px",
+    padding: "18px",
+    boxShadow: "0 24px 70px rgba(0,0,0,0.18)",
+  },
+
+  alertCenterSafe: {
+    marginBottom: "18px",
+    backgroundColor: "rgba(34, 197, 94, 0.12)",
+    border: "1px solid rgba(134, 239, 172, 0.35)",
+    borderRadius: "24px",
+    padding: "18px",
+    boxShadow: "0 24px 70px rgba(0,0,0,0.12)",
+  },
+
+  alertHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "16px",
+    marginBottom: "14px",
+  },
+
+  alertTitle: {
+    margin: "6px 0 0",
+    fontSize: "22px",
+    fontWeight: 900,
+  },
+
+  alertSafeTitle: {
+    margin: "6px 0",
+    fontSize: "22px",
+    fontWeight: 900,
+    color: "#86efac",
+  },
+
+  alertCount: {
+    width: "38px",
+    height: "38px",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    backgroundColor: "#ef4444",
+    color: "#ffffff",
+    fontWeight: 900,
+    boxShadow: "0 0 18px rgba(239, 68, 68, 0.6)",
+  },
+
+  alertList: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: "12px",
+  },
+
+  alertItem: {
+    display: "grid",
+    gridTemplateColumns: "34px 1fr",
+    gap: "12px",
+    alignItems: "start",
+    border: "1px solid rgba(255,255,255,0.25)",
+    borderRadius: "18px",
+   padding: "14px",
+  },
+
+  alertIcon: {
+    width: "30px",
+    height: "30px",
+    borderRadius: "50%",
+    display: "grid",
+    placeItems: "center",
+    color: "#ffffff",
+    fontWeight: 900,
+  },
+
+  alertItemTitle: {
+    margin: 0,
+    fontSize: "16px",
+    fontWeight: 900,
+  },
+
+  alertMessage: {
+    margin: "6px 0",
+    color: "#ffffff",
+    lineHeight: 1.45,
+  },
+
+  alertMeta: {
+    margin: 0,
+    color: "#dbeafe",
+    fontSize: "13px",
+    lineHeight: 1.4,
   },
 
   heroGrid: {
