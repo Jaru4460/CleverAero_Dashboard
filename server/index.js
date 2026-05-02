@@ -50,7 +50,7 @@ const PINS = {
   predStatus: "v27",
 };
 
-// Cache ล่าสุดที่เคยอ่านได้ ใช้กันหน้าเว็บพังถ้า Blynk error ชั่วคราว
+// Latest valid values. Used as fallback if Blynk API temporarily fails.
 const lastGoodRaw = {
   pm25: "0",
   fanStatus: "0",
@@ -84,6 +84,11 @@ const lastGoodRaw = {
   predStatus: "INSUFFICIENT DATA",
 };
 
+// Backend cache to reduce Blynk API requests.
+let cachedStatusPayload = null;
+let cachedStatusTime = 0;
+const STATUS_CACHE_TTL_MS = 20000;
+
 function requireToken() {
   if (!BLYNK_TOKEN) {
     throw new Error("Missing BLYNK_AUTH_TOKEN in Render/Local environment");
@@ -114,16 +119,16 @@ function extractBlynkError(text) {
   }
 }
 
-function isErrorLikeText(text) {
+function isBlynkApiErrorText(text) {
   if (!text) return false;
 
-  const lowerText = String(text).toLowerCase();
+  const lowerText = String(text).toLowerCase().trim();
 
   return (
-    lowerText.includes("error") ||
     lowerText.includes("limit reached") ||
     lowerText.includes("invalid token") ||
-    lowerText.includes("device is offline")
+    lowerText.includes("device is offline") ||
+    lowerText.startsWith('{"error"')
   );
 }
 
@@ -138,8 +143,10 @@ async function getBlynkValue(pin) {
     throw new Error(extractBlynkError(text) || `Blynk GET failed for ${pin}`);
   }
 
-  if (isErrorLikeText(text)) {
-    throw new Error(extractBlynkError(text) || `Blynk returned error for ${pin}`);
+  if (isBlynkApiErrorText(text)) {
+    throw new Error(
+      extractBlynkError(text) || `Blynk returned error for ${pin}`
+    );
   }
 
   return text;
@@ -161,7 +168,7 @@ async function updateBlynkValue(pin, value) {
     );
   }
 
-  if (isErrorLikeText(text)) {
+  if (isBlynkApiErrorText(text)) {
     throw new Error(
       extractBlynkError(text) || `Blynk returned error while updating ${pin}`
     );
@@ -220,6 +227,11 @@ async function getManyPinsWithFallback(pinMap) {
   };
 }
 
+function clearStatusCache() {
+  cachedStatusPayload = null;
+  cachedStatusTime = 0;
+}
+
 app.get("/", (req, res) => {
   res.json({
     message: "CleverAero backend is running",
@@ -235,6 +247,16 @@ app.get("/", (req, res) => {
 
 app.get("/api/blynk/status", async (req, res) => {
   try {
+    const now = Date.now();
+
+    if (cachedStatusPayload && now - cachedStatusTime < STATUS_CACHE_TTL_MS) {
+      return res.json({
+        ...cachedStatusPayload,
+        servedFromCache: true,
+        cacheAgeMs: now - cachedStatusTime,
+      });
+    }
+
     const { raw, warnings } = await getManyPinsWithFallback({
       pm25: PINS.pm25,
       fanStatus: PINS.fanStatus,
@@ -268,7 +290,7 @@ app.get("/api/blynk/status", async (req, res) => {
       predStatus: PINS.predStatus,
     });
 
-    res.json({
+    const payload = {
       apiHealth: warnings.length === 0 ? "ok" : "degraded",
       warnings,
 
@@ -310,14 +332,21 @@ app.get("/api/blynk/status", async (req, res) => {
       predStatus: raw.predStatus || "INSUFFICIENT DATA",
 
       raw,
+      servedFromCache: false,
+      cacheAgeMs: 0,
       modeMapping: {
         0: "Auto",
         1: "Manual",
         2: "Custom",
       },
-    });
+    };
+
+    cachedStatusPayload = payload;
+    cachedStatusTime = Date.now();
+
+    return res.json(payload);
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
@@ -334,15 +363,17 @@ app.post("/api/blynk/fan", async (req, res) => {
     }
 
     await updateBlynkValue(PINS.fanControl, value);
+    lastGoodRaw.fanControl = String(value);
+    clearStatusCache();
 
-    res.json({
+    return res.json({
       success: true,
       pin: PINS.fanControl,
       fanControl: value,
       message: value === 1 ? "Fan control set to ON" : "Fan control set to OFF",
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
@@ -359,11 +390,13 @@ app.post("/api/blynk/mode", async (req, res) => {
     }
 
     await updateBlynkValue(PINS.modeSelect, value);
+    lastGoodRaw.modeSelect = String(value);
+    clearStatusCache();
 
     const modeText =
       value === 0 ? "Auto" : value === 1 ? "Manual" : "Custom";
 
-    res.json({
+    return res.json({
       success: true,
       pin: PINS.modeSelect,
       modeSelect: value,
@@ -371,7 +404,7 @@ app.post("/api/blynk/mode", async (req, res) => {
       message: `Mode changed to ${modeText}`,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
@@ -396,15 +429,16 @@ app.post("/api/blynk/threshold", async (req, res) => {
 
     await updateBlynkValue(PINS.customThreshold, threshold);
     lastGoodRaw.customThreshold = String(threshold);
+    clearStatusCache();
 
-    res.json({
+    return res.json({
       success: true,
       pin: PINS.customThreshold,
       customThreshold: threshold,
       message: `Custom threshold updated to ${threshold} µg/m³ on V7`,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
@@ -468,8 +502,9 @@ app.post("/api/blynk/setting", async (req, res) => {
 
     await updateBlynkValue(setting.pin, numericValue);
     lastGoodRaw[setting.cacheKey] = String(numericValue);
+    clearStatusCache();
 
-    res.json({
+    return res.json({
       success: true,
       key,
       pin: setting.pin,
@@ -477,7 +512,7 @@ app.post("/api/blynk/setting", async (req, res) => {
       message: `${setting.label} updated to ${numericValue}`,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
@@ -503,15 +538,16 @@ app.post("/api/blynk/reset", async (req, res) => {
     await updateBlynkValue(pin, 1);
     await new Promise((resolve) => setTimeout(resolve, 400));
     await updateBlynkValue(pin, 0);
+    clearStatusCache();
 
-    res.json({
+    return res.json({
       success: true,
       type,
       pin,
       message: `${type} reset command sent`,
     });
   } catch (error) {
-    res.status(500).json({
+    return res.status(500).json({
       error: error.message,
     });
   }
