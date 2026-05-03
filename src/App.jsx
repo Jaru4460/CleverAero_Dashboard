@@ -2,7 +2,41 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
+
 const MAX_LOG_ROWS = 80;
+
+function getCurrentTime() {
+  return new Date().toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readJsonResponse(response) {
+  try {
+    return await response.json();
+  } catch {
+    return {};
+  }
+}
+
+function formatNumber(value, digits = 1) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) return "0";
+  return numberValue.toFixed(digits);
+}
+
+function getModeText(modeSelect) {
+  if (modeSelect === 0) return "Auto";
+  if (modeSelect === 1) return "Manual";
+  if (modeSelect === 2) return "Custom";
+  return "Unknown";
+}
 
 function getAirQuality(pm25) {
   if (pm25 <= 12) {
@@ -36,27 +70,6 @@ function getAirQuality(pm25) {
   };
 }
 
-function getModeText(modeSelect) {
-  if (modeSelect === 0) return "Auto";
-  if (modeSelect === 1) return "Manual";
-  if (modeSelect === 2) return "Custom";
-  return "Unknown";
-}
-
-function getCurrentTime() {
-  return new Date().toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-}
-
-function formatNumber(value, digits = 1) {
-  const numberValue = Number(value);
-  if (!Number.isFinite(numberValue)) return "0";
-  return numberValue.toFixed(digits);
-}
-
 function getTrendColor(trend) {
   if (trend === "FALLING" || trend === "Improving") return "#22c55e";
   if (trend === "RISING" || trend === "Increasing") return "#ef4444";
@@ -87,17 +100,24 @@ function MiniInsight({ title, value, description, color }) {
   );
 }
 
+function SectionTitle({ title, subtitle }) {
+  return (
+    <div style={styles.sectionHeadingBlock}>
+      <h2 style={styles.sectionTitle}>{title}</h2>
+      <p style={styles.sectionSubtitle}>{subtitle}</p>
+    </div>
+  );
+}
+
 function AlertCenter({ alerts }) {
   if (!alerts || alerts.length === 0) {
     return (
       <section style={styles.alertCenterSafe}>
-        <div>
-          <p style={styles.cardLabel}>Alert Center</p>
-          <h3 style={styles.alertSafeTitle}>All systems normal</h3>
-          <p style={styles.cardSubtitle}>
-            No dashboard warning is currently active.
-          </p>
-        </div>
+        <p style={styles.cardLabel}>Alert Center</p>
+        <h3 style={styles.alertSafeTitle}>All systems normal</h3>
+        <p style={styles.cardSubtitle}>
+          No dashboard warning is currently active.
+        </p>
       </section>
     );
   }
@@ -139,15 +159,6 @@ function AlertCenter({ alerts }) {
   );
 }
 
-function SectionTitle({ title, subtitle }) {
-  return (
-    <div style={styles.sectionHeadingBlock}>
-      <h2 style={styles.sectionTitle}>{title}</h2>
-      <p style={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
-}
-
 function SettingControl({
   title,
   subtitle,
@@ -162,13 +173,11 @@ function SettingControl({
 }) {
   return (
     <div style={styles.settingCard}>
-      <div>
-        <p style={styles.cardLabel}>{title}</p>
-        <h3 style={styles.settingValue}>
-          {value} <span style={styles.settingUnit}>{unit}</span>
-        </h3>
-        <p style={styles.cardSubtitle}>{subtitle}</p>
-      </div>
+      <p style={styles.cardLabel}>{title}</p>
+      <h3 style={styles.settingValue}>
+        {value} <span style={styles.settingUnit}>{unit}</span>
+      </h3>
+      <p style={styles.cardSubtitle}>{subtitle}</p>
 
       <input
         className="tech-slider"
@@ -196,8 +205,16 @@ function LineChart({ data, maxPoints }) {
   const displayData = data.slice(-maxPoints);
   const width = 900;
   const height = 300;
-  const paddingX = 42;
+  const paddingX = 44;
   const paddingY = 34;
+
+  if (displayData.length === 0) {
+    return (
+      <div style={styles.lineChartWrapper}>
+        <p style={styles.sectionSubtitle}>Waiting for data...</p>
+      </div>
+    );
+  }
 
   const maxPM = Math.max(60, ...displayData.map((item) => item.pm25 || 0));
   const minPM = 0;
@@ -233,105 +250,108 @@ function LineChart({ data, maxPoints }) {
         } ${height - paddingY} Z`
       : "";
 
-  const yTicks = [0, Math.round(maxPM * 0.25), Math.round(maxPM * 0.5), Math.round(maxPM * 0.75), maxPM];
+  const yTicks = [
+    0,
+    Math.round(maxPM * 0.25),
+    Math.round(maxPM * 0.5),
+    Math.round(maxPM * 0.75),
+    maxPM,
+  ];
 
   return (
     <div style={styles.lineChartWrapper}>
-      {displayData.length === 0 ? (
-        <p style={styles.sectionSubtitle}>Waiting for data...</p>
-      ) : (
-        <svg viewBox={`0 0 ${width} ${height}`} style={styles.lineChart}>
-          <defs>
-            <linearGradient id="pmLineGradient" x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0%" stopColor="#93c5fd" />
-              <stop offset="50%" stopColor="#38bdf8" />
-              <stop offset="100%" stopColor="#facc15" />
-            </linearGradient>
+      <svg viewBox={`0 0 ${width} ${height}`} style={styles.lineChart}>
+        <defs>
+          <linearGradient id="pmLineGradient" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stopColor="#93c5fd" />
+            <stop offset="50%" stopColor="#38bdf8" />
+            <stop offset="100%" stopColor="#facc15" />
+          </linearGradient>
 
-            <linearGradient id="pmAreaGradient" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="rgba(56, 189, 248, 0.34)" />
-              <stop offset="100%" stopColor="rgba(56, 189, 248, 0.02)" />
-            </linearGradient>
-          </defs>
+          <linearGradient id="pmAreaGradient" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgba(56, 189, 248, 0.34)" />
+            <stop offset="100%" stopColor="rgba(56, 189, 248, 0.02)" />
+          </linearGradient>
+        </defs>
 
-          {yTicks.map((tick) => {
-            const y =
-              height -
-              paddingY -
-              ((tick - minPM) / (maxPM - minPM)) * (height - paddingY * 2);
+        {yTicks.map((tick) => {
+          const y =
+            height -
+            paddingY -
+            ((tick - minPM) / (maxPM - minPM)) * (height - paddingY * 2);
 
-            return (
-              <g key={tick}>
-                <line
-                  x1={paddingX}
-                  y1={y}
-                  x2={width - paddingX}
-                  y2={y}
-                  stroke="rgba(255,255,255,0.14)"
-                  strokeWidth="1"
-                />
+          return (
+            <g key={tick}>
+              <line
+                x1={paddingX}
+                y1={y}
+                x2={width - paddingX}
+                y2={y}
+                stroke="rgba(255,255,255,0.14)"
+                strokeWidth="1"
+              />
+              <text
+                x="8"
+                y={y + 4}
+                fill="#bfdbfe"
+                fontSize="12"
+                fontWeight="700"
+              >
+                {tick}
+              </text>
+            </g>
+          );
+        })}
+
+        <path d={areaPath} fill="url(#pmAreaGradient)" />
+        <path
+          d={path}
+          fill="none"
+          stroke="url(#pmLineGradient)"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {points.map((point, index) => {
+          const isLatest = index === points.length - 1;
+
+          return (
+            <g key={`${point.time}-${index}`}>
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r={isLatest ? 6 : 4}
+                fill={isLatest ? "#facc15" : "#e0f2fe"}
+                stroke={isLatest ? "#fb923c" : "#2563eb"}
+                strokeWidth="2"
+              />
+
+              {isLatest && (
                 <text
-                  x="8"
-                  y={y + 4}
-                  fill="#bfdbfe"
-                  fontSize="12"
-                  fontWeight="700"
+                  x={point.x - 16}
+                  y={point.y - 12}
+                  fill="#ffffff"
+                  fontSize="13"
+                  fontWeight="800"
                 >
-                  {tick}
+                  {point.pm25}
                 </text>
-              </g>
-            );
-          })}
+              )}
+            </g>
+          );
+        })}
 
-          <path d={areaPath} fill="url(#pmAreaGradient)" />
-          <path
-            d={path}
-            fill="none"
-            stroke="url(#pmLineGradient)"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {points.map((point, index) => {
-            const isLatest = index === points.length - 1;
-
-            return (
-              <g key={`${point.time}-${index}`}>
-                <circle
-                  cx={point.x}
-                  cy={point.y}
-                  r={isLatest ? 6 : 4}
-                  fill={isLatest ? "#facc15" : "#e0f2fe"}
-                  stroke={isLatest ? "#fb923c" : "#2563eb"}
-                  strokeWidth="2"
-                />
-                {isLatest && (
-                  <text
-                    x={point.x - 18}
-                    y={point.y - 12}
-                    fill="#ffffff"
-                    fontSize="13"
-                    fontWeight="800"
-                  >
-                    {point.pm25}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-
-          <text
-            x={width - 150}
-            y={height - 8}
-            fill="#bfdbfe"
-            fontSize="12"
-            fontWeight="700"
-          >
-            Latest {displayData.length} readings
-          </text>
-        </svg>
-      )}
+        <text
+          x={width - 155}
+          y={height - 8}
+          fill="#bfdbfe"
+          fontSize="12"
+          fontWeight="700"
+        >
+          Latest {displayData.length} readings
+        </text>
+      </svg>
     </div>
   );
 }
@@ -367,82 +387,90 @@ function App() {
   const experimentActiveRef = useRef(false);
   const hasLoadedInitialSettingsRef = useRef(false);
 
-  async function fetchBlynkStatus(options = {}) {
+  async function fetchDeviceStatus() {
     try {
       setIsLoading(true);
 
-      const forceRefresh = options.force === true ? "?refresh=1" : "";
       const response = await fetch(`${API_BASE_URL}/api/device/latest`);
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to fetch Blynk data");
+        throw new Error(payload.error || "Failed to fetch device data");
       }
 
-      const thresholdFromBlynk = Number(result.customThreshold);
+      const thresholdFromBackend = Number(payload.customThreshold);
       const isValidThreshold =
-        Number.isFinite(thresholdFromBlynk) &&
-        thresholdFromBlynk >= 1 &&
-        thresholdFromBlynk <= 300;
+        Number.isFinite(thresholdFromBackend) &&
+        thresholdFromBackend >= 1 &&
+        thresholdFromBackend <= 300;
 
       if (isValidThreshold) {
-        setCustomThreshold(thresholdFromBlynk);
+        setCustomThreshold(thresholdFromBackend);
 
         if (!hasLoadedInitialSettingsRef.current) {
-          setThresholdDraft(thresholdFromBlynk);
+          setThresholdDraft(thresholdFromBackend);
         }
       }
 
       if (!hasLoadedInitialSettingsRef.current) {
-        setSafeTargetDraft(Number(result.safeTarget) || 25);
-        setFanPowerDraft(Number(result.fanPowerW) || 2.16);
-        setRoomVolumeDraft(Number(result.roomVolume) || 30);
-        setAlertLimitDraft(Number(result.alertLimit) || 20);
+        setSafeTargetDraft(Number(payload.safeTarget) || 25);
+        setFanPowerDraft(Number(payload.fanPowerW) || 2.16);
+        setRoomVolumeDraft(Number(payload.roomVolume) || 30);
+        setAlertLimitDraft(Number(payload.alertLimit) || 20);
         hasLoadedInitialSettingsRef.current = true;
       }
+
+      const modeValue = Number(payload.modeSelect);
+      const safeModeValue = Number.isFinite(modeValue) ? modeValue : -1;
 
       const reading = {
         time: getCurrentTime(),
 
-        apiHealth: result.apiHealth || "ok",
-        warnings: Array.isArray(result.warnings) ? result.warnings : [],
+        apiHealth: payload.apiHealth || "ok",
+        warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+        deviceOnline: payload.deviceOnline === true,
+        servedFrom: payload.servedFrom || "backend",
+        lastUpdated: payload.lastUpdated || null,
+        ageSeconds: payload.ageSeconds ?? null,
 
-        pm25: Number(result.pm25),
-        fanStatus: Number(result.fanStatus),
-        modeSelect: Number(result.modeSelect),
-        aqi: Number(result.aqi),
+        pm25: Number(payload.pm25) || 0,
+        fanStatus: Number(payload.fanStatus) || 0,
+        fanControl: Number(payload.fanControl) || 0,
+        modeSelect: safeModeValue,
+        aqi: Number(payload.aqi) || 0,
 
-        pm25Chart: Number(result.pm25Chart),
-        pm25History: Number(result.pm25History),
+        pm25Chart: Number(payload.pm25Chart) || 0,
+        pm25History: Number(payload.pm25History) || 0,
 
         customThreshold: isValidThreshold
-          ? thresholdFromBlynk
+          ? thresholdFromBackend
           : customThreshold,
 
-        alertLimit: Number(result.alertLimit),
-        filterHealth: Number(result.filterHealth),
-        airStatus: result.airStatus || "WAITING",
-        systemStatus: result.systemStatus || "Waiting Sensor",
-        sensorStatus: result.sensorStatus || "WAITING",
+        alertLimit: Number(payload.alertLimit) || 20,
+        filterHealth: Number(payload.filterHealth) || 0,
+        airStatus: payload.airStatus || "WAITING",
+        systemStatus: payload.systemStatus || "Waiting Sensor",
+        sensorStatus: payload.sensorStatus || "WAITING",
 
-        efficiency: Number(result.efficiency),
-        timeToSafe: Number(result.timeToSafe),
-        removalRate: Number(result.removalRate),
-        safeTarget: Number(result.safeTarget),
-        cleaningStatus: result.cleaningStatus || "WAITING",
+        efficiency: Number(payload.efficiency) || 0,
+        timeToSafe: Number(payload.timeToSafe) || 0,
+        removalRate: Number(payload.removalRate) || 0,
+        safeTarget: Number(payload.safeTarget) || 25,
+        cleaningStatus: payload.cleaningStatus || "WAITING",
 
-        energyUsed: Number(result.energyUsed),
-        energySaved: Number(result.energySaved),
-        fanPowerW: Number(result.fanPowerW),
-        roomVolume: Number(result.roomVolume),
-        cadrEstimate: Number(result.cadrEstimate),
+        energyUsed: Number(payload.energyUsed) || 0,
+        energySaved: Number(payload.energySaved) || 0,
+        fanPowerW: Number(payload.fanPowerW) || 2.16,
+        roomVolume: Number(payload.roomVolume) || 30,
+        cadrEstimate: Number(payload.cadrEstimate) || 0,
 
-        pm25Pred5m: Number(result.pm25Pred5m),
-        predTrend: result.predTrend || "NO DATA",
-        predStatus: result.predStatus || "INSUFFICIENT DATA",
+        pm25Pred5m: Number(payload.pm25Pred5m) || 0,
+        predTrend: payload.predTrend || "NO DATA",
+        predStatus: payload.predStatus || "INSUFFICIENT DATA",
       };
 
       setLatestStatus(reading);
-      setConnectionStatus("Connected");
+      setConnectionStatus(reading.deviceOnline ? "Connected" : "Disconnected");
       setErrorMessage("");
 
       setData((previousData) => {
@@ -461,15 +489,15 @@ function App() {
   }
 
   useEffect(() => {
-    fetchBlynkStatus();
+    fetchDeviceStatus();
   }, []);
 
   useEffect(() => {
     if (!isLive) return;
 
     const intervalId = setInterval(() => {
-      fetchBlynkStatus();
-    }, 15000);
+      fetchDeviceStatus();
+    }, 10000);
 
     return () => clearInterval(intervalId);
   }, [isLive]);
@@ -477,10 +505,15 @@ function App() {
   const currentPM25 = latestStatus?.pm25 ?? 0;
   const currentAQI = latestStatus?.aqi ?? 0;
   const fanStatusText = latestStatus?.fanStatus === 1 ? "ON" : "OFF";
-  const modeSelect = latestStatus?.modeSelect;
+  const modeSelect = latestStatus?.modeSelect ?? -1;
   const modeText = getModeText(modeSelect);
   const isManualMode = modeSelect === 1;
   const isCustomMode = modeSelect === 2;
+
+  const apiHealth = latestStatus?.apiHealth ?? "waiting";
+  const apiWarnings = latestStatus?.warnings ?? [];
+  const deviceOnline = latestStatus?.deviceOnline ?? false;
+  const deviceAgeSeconds = latestStatus?.ageSeconds ?? null;
 
   const blynkAlertLimit = latestStatus?.alertLimit ?? 20;
   const blynkFilterHealth = latestStatus?.filterHealth ?? 0;
@@ -503,33 +536,13 @@ function App() {
   const blynkPredPM5m = latestStatus?.pm25Pred5m ?? 0;
   const blynkPredTrend = latestStatus?.predTrend ?? "NO DATA";
   const blynkPredStatus = latestStatus?.predStatus ?? "INSUFFICIENT DATA";
-  
-  const apiHealth = latestStatus?.apiHealth ?? "ok";
-  const apiWarnings = latestStatus?.warnings ?? [];
 
-  const initialPM25 = data.length > 0 ? data[0].pm25 : currentPM25;
-  const totalReduction = Math.max(initialPM25 - currentPM25, 0);
-
-  const sessionEfficiencyNumber =
-    initialPM25 > 0 ? (totalReduction / initialPM25) * 100 : 0;
-
-  const sessionEfficiency = sessionEfficiencyNumber.toFixed(1);
   const airQuality = getAirQuality(currentPM25);
 
   const averagePM25 = useMemo(() => {
     if (data.length === 0) return "0.0";
     const total = data.reduce((sum, item) => sum + item.pm25, 0);
     return (total / data.length).toFixed(1);
-  }, [data]);
-
-  const highestPM25 = useMemo(() => {
-    if (data.length === 0) return 0;
-    return Math.max(...data.map((item) => item.pm25));
-  }, [data]);
-
-  const lowestPM25 = useMemo(() => {
-    if (data.length === 0) return 0;
-    return Math.min(...data.map((item) => item.pm25));
   }, [data]);
 
   const trendText = useMemo(() => {
@@ -566,11 +579,25 @@ function App() {
   const dashboardAlerts = useMemo(() => {
     const alerts = [];
 
+    if (!deviceOnline) {
+      alerts.push({
+        title: "Device telemetry is offline",
+        message:
+          "The dashboard has not received recent telemetry from Arduino.",
+        meta:
+          deviceAgeSeconds === null
+            ? "Waiting for first Arduino telemetry."
+            : `Last update was ${deviceAgeSeconds} seconds ago.`,
+        color: "#facc15",
+        background: "rgba(250, 204, 21, 0.13)",
+      });
+    }
+
     if (apiHealth === "degraded" || apiWarnings.length > 0) {
       alerts.push({
-        title: "Blynk API warning",
+        title: "Backend warning",
         message:
-          "Some Blynk values could not be updated, so the dashboard may be using the latest cached data.",
+          "Some backend data may be delayed or using cached/default values.",
         meta: apiWarnings.slice(0, 2).join(" | ") || "Backend degraded mode",
         color: "#facc15",
         background: "rgba(250, 204, 21, 0.13)",
@@ -580,7 +607,7 @@ function App() {
     if (currentPM25 > blynkAlertLimit) {
       alerts.push({
         title: "High PM2.5 detected",
-        message: `Current PM2.5 is ${currentPM25} µg/m³, which is above the alert limit of ${blynkAlertLimit} µg/m³.`,
+        message: `Current PM2.5 is ${currentPM25} µg/m³, above the alert limit of ${blynkAlertLimit} µg/m³.`,
         meta: "Recommended action: keep purification active and avoid unnecessary exposure.",
         color: "#ef4444",
         background: "rgba(239, 68, 68, 0.16)",
@@ -593,7 +620,7 @@ function App() {
     ) {
       alerts.push({
         title: "Prediction risk",
-        message: `The PM2.5 prediction system reports: ${blynkPredStatus}.`,
+        message: `Prediction status: ${blynkPredStatus}.`,
         meta: `Predicted PM2.5 in 5 minutes: ${formatNumber(
           blynkPredPM5m,
           1
@@ -611,14 +638,6 @@ function App() {
         color: "#ef4444",
         background: "rgba(239, 68, 68, 0.16)",
       });
-    } else if (blynkFilterHealth > 30 && blynkFilterHealth <= 50) {
-      alerts.push({
-        title: "Filter should be monitored",
-        message: `Filter health is currently ${blynkFilterHealth}%.`,
-        meta: "The filter is still usable, but maintenance should be planned.",
-        color: "#facc15",
-        background: "rgba(250, 204, 21, 0.13)",
-      });
     }
 
     if (
@@ -635,22 +654,10 @@ function App() {
       });
     }
 
-    if (
-      blynkSystemStatus &&
-      typeof blynkSystemStatus === "string" &&
-      blynkSystemStatus.toUpperCase().includes("ERROR")
-    ) {
-      alerts.push({
-        title: "System status error",
-        message: `System status: ${blynkSystemStatus}.`,
-        meta: "Check Arduino serial monitor and Blynk datastream status.",
-        color: "#ef4444",
-        background: "rgba(239, 68, 68, 0.16)",
-      });
-    }
-
     return alerts;
   }, [
+    deviceOnline,
+    deviceAgeSeconds,
     apiHealth,
     apiWarnings,
     currentPM25,
@@ -659,7 +666,6 @@ function App() {
     blynkPredPM5m,
     blynkFilterHealth,
     blynkSensorStatus,
-    blynkSystemStatus,
   ]);
 
   const experimentSummary = useMemo(() => {
@@ -698,7 +704,7 @@ function App() {
   }, [experimentData]);
 
   const judgeSummary = useMemo(() => {
-    return `CleverAero is a smart PM2.5 air purification system connected to Blynk and monitored through a custom web dashboard. The current PM2.5 concentration is ${currentPM25} µg/m³, the AQI is ${currentAQI}, the fan status is ${fanStatusText}, and the current operation mode is ${modeText}. The system currently reports ${blynkEfficiency}% cleaning efficiency, an estimated CADR of ${formatNumber(
+    return `CleverAero is a smart PM2.5 air purification system monitored through a custom web dashboard. The current PM2.5 concentration is ${currentPM25} µg/m³, the AQI is ${currentAQI}, the fan status is ${fanStatusText}, and the current operation mode is ${modeText}. The system currently reports ${blynkEfficiency}% cleaning efficiency, an estimated CADR of ${formatNumber(
       blynkCADR,
       1
     )} m³/h, a removal rate of ${formatNumber(
@@ -727,6 +733,7 @@ function App() {
   async function updateFan(value) {
     try {
       setIsLoading(true);
+      setErrorMessage("");
 
       const response = await fetch(`${API_BASE_URL}/api/blynk/fan`, {
         method: "POST",
@@ -736,25 +743,24 @@ function App() {
         body: JSON.stringify({ value }),
       });
 
-      const result = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to update fan");
+        throw new Error(payload.error || "Failed to update fan");
       }
 
       setLatestStatus((previousStatus) => {
         if (!previousStatus) return previousStatus;
 
-      return {
-        ...previousStatus,
-        fanStatus: value,
-      };
-    });
+        return {
+          ...previousStatus,
+          fanControl: value,
+          fanStatus: previousStatus.modeSelect === 1 ? value : previousStatus.fanStatus,
+        };
+      });
 
-await new Promise((resolve) => setTimeout(resolve, 800));
-await fetchBlynkStatus({ force: true });
-
-      await fetchBlynkStatus();
+      await wait(800);
+      await fetchDeviceStatus();
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -765,6 +771,7 @@ await fetchBlynkStatus({ force: true });
   async function updateMode(value) {
     try {
       setIsLoading(true);
+      setErrorMessage("");
 
       const response = await fetch(`${API_BASE_URL}/api/blynk/mode`, {
         method: "POST",
@@ -774,10 +781,10 @@ await fetchBlynkStatus({ force: true });
         body: JSON.stringify({ value }),
       });
 
-      const result = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to update mode");
+        throw new Error(payload.error || "Failed to update mode");
       }
 
       setLatestStatus((previousStatus) => {
@@ -789,9 +796,8 @@ await fetchBlynkStatus({ force: true });
         };
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      await fetchBlynkStatus({ force: true });
-
+      await wait(800);
+      await fetchDeviceStatus();
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -815,17 +821,18 @@ await fetchBlynkStatus({ force: true });
         body: JSON.stringify({ value: safeValue }),
       });
 
-      const result = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to update threshold");
+        throw new Error(payload.error || "Failed to update threshold");
       }
 
       setCustomThreshold(safeValue);
       setThresholdDraft(safeValue);
-      setThresholdStatus(`Saved ${safeValue} µg/m³ to Blynk V7`);
+      setThresholdStatus(`Saved ${safeValue} µg/m³ to backend command queue`);
 
-      await fetchBlynkStatus();
+      await wait(800);
+      await fetchDeviceStatus();
     } catch (error) {
       setThresholdStatus("");
       setErrorMessage(error.message);
@@ -848,14 +855,16 @@ await fetchBlynkStatus({ force: true });
         body: JSON.stringify({ key, value }),
       });
 
-      const result = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to update setting");
+        throw new Error(payload.error || "Failed to update setting");
       }
 
-      setSettingStatus(result.message || "Setting updated");
-      await fetchBlynkStatus();
+      setSettingStatus(payload.message || "Setting command queued");
+
+      await wait(800);
+      await fetchDeviceStatus();
     } catch (error) {
       setSettingStatus("");
       setErrorMessage(error.message);
@@ -877,13 +886,14 @@ await fetchBlynkStatus({ force: true });
         body: JSON.stringify({ type }),
       });
 
-      const result = await response.json();
+      const payload = await readJsonResponse(response);
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to reset");
+        throw new Error(payload.error || "Failed to reset");
       }
 
-      await fetchBlynkStatus();
+      await wait(800);
+      await fetchDeviceStatus();
     } catch (error) {
       setErrorMessage(error.message);
     } finally {
@@ -947,26 +957,24 @@ await fetchBlynkStatus({ force: true });
       "Prediction Status",
     ];
 
-    const rows = data.map((item) => {
-      return [
-        item.time,
-        `${item.pm25} µg/m³`,
-        item.aqi,
-        item.fanStatus === 1 ? "ON" : "OFF",
-        getModeText(item.modeSelect),
-        `${item.customThreshold ?? customThreshold} µg/m³`,
-        `${item.filterHealth ?? 0}%`,
-        `${item.efficiency ?? 0}%`,
-        `${item.timeToSafe ?? 0} min`,
-        `${formatNumber(item.removalRate ?? 0, 2)} µg/m³/min`,
-        `${formatNumber(item.energyUsed ?? 0, 3)} Wh`,
-        `${formatNumber(item.energySaved ?? 0, 0)}%`,
-        `${formatNumber(item.cadrEstimate ?? 0, 1)} m³/h`,
-        `${formatNumber(item.pm25Pred5m ?? 0, 1)} µg/m³`,
-        item.predTrend ?? "NO DATA",
-        item.predStatus ?? "INSUFFICIENT DATA",
-      ];
-    });
+    const rows = data.map((item) => [
+      item.time,
+      `${item.pm25} µg/m³`,
+      item.aqi,
+      item.fanStatus === 1 ? "ON" : "OFF",
+      getModeText(item.modeSelect),
+      `${item.customThreshold ?? customThreshold} µg/m³`,
+      `${item.filterHealth ?? 0}%`,
+      `${item.efficiency ?? 0}%`,
+      `${item.timeToSafe ?? 0} min`,
+      `${formatNumber(item.removalRate ?? 0, 2)} µg/m³/min`,
+      `${formatNumber(item.energyUsed ?? 0, 3)} Wh`,
+      `${formatNumber(item.energySaved ?? 0, 0)}%`,
+      `${formatNumber(item.cadrEstimate ?? 0, 1)} m³/h`,
+      `${formatNumber(item.pm25Pred5m ?? 0, 1)} µg/m³`,
+      item.predTrend ?? "NO DATA",
+      item.predStatus ?? "INSUFFICIENT DATA",
+    ]);
 
     const csvContent = [header, ...rows]
       .map((row) => row.join(","))
@@ -980,7 +988,7 @@ await fetchBlynkStatus({ force: true });
     const link = document.createElement("a");
 
     link.href = url;
-    link.download = "cleveraero-advanced-dashboard-data.csv";
+    link.download = "cleveraero-dashboard-data.csv";
     link.click();
 
     URL.revokeObjectURL(url);
@@ -1052,14 +1060,16 @@ await fetchBlynkStatus({ force: true });
                 <p style={styles.cardLabel}>Current PM2.5</p>
                 <h2 style={styles.heroNumber}>{currentPM25}</h2>
                 <p style={styles.unit}>µg/m³</p>
-                <p style={styles.cardSubtitle}>Real-time value from Blynk V0</p>
+                <p style={styles.cardSubtitle}>
+                  Real-time value from Arduino telemetry
+                </p>
               </div>
 
               <div style={styles.statusPanel}>
                 <StatCard
                   title="AQI"
                   value={currentAQI}
-                  subtitle="Air quality index from Blynk V4"
+                  subtitle="Air quality index from Arduino"
                 />
 
                 <StatCard
@@ -1072,7 +1082,7 @@ await fetchBlynkStatus({ force: true });
                 <StatCard
                   title="Fan Status"
                   value={fanStatusText}
-                  subtitle="Real fan status from Blynk V1"
+                  subtitle="Real fan status from Arduino"
                   color={fanStatusText === "ON" ? "#22c55e" : "#facc15"}
                 />
 
@@ -1085,7 +1095,9 @@ await fetchBlynkStatus({ force: true });
                       ? "#38bdf8"
                       : modeSelect === 1
                       ? "#c084fc"
-                      : "#fb923c"
+                      : modeSelect === 2
+                      ? "#fb923c"
+                      : "#f97316"
                   }
                 />
               </div>
@@ -1096,8 +1108,8 @@ await fetchBlynkStatus({ force: true });
                 <div>
                   <h2 style={styles.sectionTitle}>Live PM2.5 Line Graph</h2>
                   <p style={styles.sectionSubtitle}>
-                    Readings are fetched from Blynk every 15 seconds through the
-                    local backend.
+                    Readings are fetched from the CleverAero backend every 10
+                    seconds.
                   </p>
                 </div>
 
@@ -1118,7 +1130,7 @@ await fetchBlynkStatus({ force: true });
 
                   <button
                     style={styles.smallDarkButton}
-                    onClick={fetchBlynkStatus}
+                    onClick={fetchDeviceStatus}
                     disabled={isLoading}
                   >
                     Refresh
@@ -1154,7 +1166,7 @@ await fetchBlynkStatus({ force: true });
               <MiniInsight
                 title="Average PM2.5"
                 value={`${averagePM25} µg/m³`}
-                description="Average from current session log"
+                description="Average from current dashboard log"
               />
 
               <MiniInsight
@@ -1162,6 +1174,17 @@ await fetchBlynkStatus({ force: true });
                 value={trendText}
                 description="Compared with the previous reading"
                 color={getTrendColor(trendText)}
+              />
+
+              <MiniInsight
+                title="Device Online"
+                value={deviceOnline ? "Online" : "Offline"}
+                description={
+                  deviceAgeSeconds === null
+                    ? "Waiting for telemetry"
+                    : `Last telemetry: ${deviceAgeSeconds}s ago`
+                }
+                color={deviceOnline ? "#22c55e" : "#facc15"}
               />
 
               <MiniInsight
@@ -1174,26 +1197,13 @@ await fetchBlynkStatus({ force: true });
                 title="Sensor Status"
                 value={blynkSensorStatus}
                 description="PMS5003 sensor connection status"
-                color={blynkSensorStatus === "OK" ? "#22c55e" : "#ef4444"}
-              />
-
-              <MiniInsight
-                title="Cleaning Status"
-                value={blynkCleaningStatus}
-                description="Current purification state"
-                color={
-                  blynkCleaningStatus === "SAFE"
-                    ? "#22c55e"
-                    : blynkCleaningStatus.includes("CLEANING")
-                    ? "#38bdf8"
-                    : "#facc15"
-                }
+                color={blynkSensorStatus === "OK" ? "#22c55e" : "#facc15"}
               />
 
               <MiniInsight
                 title="Custom Threshold"
                 value={`${customThreshold} µg/m³`}
-                description="Customized Minimum from Blynk V7"
+                description="Custom threshold from backend command layer"
                 color="#38bdf8"
               />
             </section>
@@ -1227,10 +1237,9 @@ await fetchBlynkStatus({ force: true });
                 <span style={styles.modeIcon}>AUTO</span>
                 <h3 style={styles.modeTitle}>Auto Mode</h3>
                 <p style={styles.modeText}>
-                  Arduino automatically controls the fan using the default PM2.5
-                  threshold.
+                  Arduino automatically controls the fan using PM2.5 logic.
                 </p>
-                <p style={styles.modePin}>Send 0 to V3</p>
+                <p style={styles.modePin}>Command: modeSelect = 0</p>
               </button>
 
               <button
@@ -1244,9 +1253,9 @@ await fetchBlynkStatus({ force: true });
                 <span style={styles.modeIcon}>MANUAL</span>
                 <h3 style={styles.modeTitle}>Manual Mode</h3>
                 <p style={styles.modeText}>
-                  The user directly controls Fan ON/OFF from the dashboard.
+                  The user directly controls Fan ON/OFF from the web dashboard.
                 </p>
-                <p style={styles.modePin}>Send 1 to V3</p>
+                <p style={styles.modePin}>Command: modeSelect = 1</p>
               </button>
 
               <button
@@ -1260,9 +1269,9 @@ await fetchBlynkStatus({ force: true });
                 <span style={styles.modeIcon}>CUSTOM</span>
                 <h3 style={styles.modeTitle}>Custom Mode</h3>
                 <p style={styles.modeText}>
-                  Uses the Customized Minimum value from Blynk V7.
+                  Arduino uses the custom threshold value set from the dashboard.
                 </p>
-                <p style={styles.modePin}>Send 2 to V3</p>
+                <p style={styles.modePin}>Command: modeSelect = 2</p>
               </button>
             </section>
 
@@ -1302,19 +1311,19 @@ await fetchBlynkStatus({ force: true });
                 </div>
 
                 <div style={styles.noteBox}>
-                  <strong>Why disabled in Auto / Custom Mode?</strong>
+                  <strong>Control layer:</strong>
                   <br />
-                  In Auto or Custom Mode, Arduino controls the fan automatically
-                  based on PM2.5 and threshold logic. Manual fan control should
-                  only be used in Manual Mode.
+                  Web dashboard sends commands to the backend. Arduino polls the
+                  backend command endpoint and applies the command with a small
+                  delay.
                 </div>
               </div>
 
               <div style={styles.panel}>
                 <h2 style={styles.sectionTitle}>Custom Threshold</h2>
                 <p style={styles.sectionSubtitle}>
-                  This value is sent to Blynk V7 and will be used by Arduino
-                  when Custom Mode is active.
+                  This value is sent to the backend command queue and applied by
+                  Arduino in Custom Mode.
                 </p>
 
                 <div style={styles.thresholdBox}>
@@ -1358,7 +1367,7 @@ await fetchBlynkStatus({ force: true });
                     onClick={() => updateThreshold(thresholdDraft)}
                     disabled={isLoading}
                   >
-                    Save Threshold to V7
+                    Save Threshold
                   </button>
 
                   <button
@@ -1379,13 +1388,13 @@ await fetchBlynkStatus({ force: true });
             <section style={styles.panel}>
               <SectionTitle
                 title="Performance Configuration"
-                subtitle="Adjust the parameters used by Arduino for safe-air target, energy estimation, and CADR calculation."
+                subtitle="Adjust parameters used for safe-air target, energy estimation, and CADR calculation."
               />
 
               <div style={styles.settingGrid}>
                 <SettingControl
                   title="Safe PM Target"
-                  subtitle={`Current Blynk V17 value: ${blynkSafeTarget} µg/m³`}
+                  subtitle={`Current value: ${blynkSafeTarget} µg/m³`}
                   value={safeTargetDraft}
                   unit="µg/m³"
                   min={5}
@@ -1398,7 +1407,7 @@ await fetchBlynkStatus({ force: true });
 
                 <SettingControl
                   title="Fan Power"
-                  subtitle={`Current Blynk V21 value: ${formatNumber(
+                  subtitle={`Current value: ${formatNumber(
                     blynkFanPowerW,
                     2
                   )} W`}
@@ -1414,7 +1423,7 @@ await fetchBlynkStatus({ force: true });
 
                 <SettingControl
                   title="Room Volume"
-                  subtitle={`Current Blynk V22 value: ${formatNumber(
+                  subtitle={`Current value: ${formatNumber(
                     blynkRoomVolume,
                     1
                   )} m³`}
@@ -1430,7 +1439,7 @@ await fetchBlynkStatus({ force: true });
 
                 <SettingControl
                   title="Alert Limit"
-                  subtitle={`Current Blynk V8 value: ${blynkAlertLimit} µg/m³`}
+                  subtitle={`Current value: ${blynkAlertLimit} µg/m³`}
                   value={alertLimitDraft}
                   unit="µg/m³"
                   min={5}
@@ -1454,21 +1463,21 @@ await fetchBlynkStatus({ force: true });
             <section style={styles.categoryPanel}>
               <SectionTitle
                 title="Performance"
-                subtitle="Cleaning performance metrics calculated by Arduino during a cleaning session."
+                subtitle="Cleaning performance metrics calculated by Arduino."
               />
 
               <div style={styles.categoryGrid}>
                 <MiniInsight
                   title="Cleaning Efficiency"
                   value={`${blynkEfficiency}%`}
-                  description="Reduction efficiency from Arduino cleaning session"
+                  description="Reduction efficiency from cleaning session"
                   color="#22c55e"
                 />
 
                 <MiniInsight
                   title="CADR Estimate"
                   value={`${formatNumber(blynkCADR, 1)} m³/h`}
-                  description="Estimated clean air delivery rate from room model"
+                  description="Estimated clean air delivery rate"
                   color="#38bdf8"
                 />
 
@@ -1488,13 +1497,13 @@ await fetchBlynkStatus({ force: true });
                 <MiniInsight
                   title="Safe Target"
                   value={`${blynkSafeTarget} µg/m³`}
-                  description="Target PM2.5 level used by the cleaning algorithm"
+                  description="Target PM2.5 level used by the algorithm"
                 />
 
                 <MiniInsight
                   title="Cleaning Status"
                   value={blynkCleaningStatus}
-                  description="Current purification state from Arduino"
+                  description="Current purification state"
                   color={
                     blynkCleaningStatus === "SAFE"
                       ? "#22c55e"
@@ -1509,27 +1518,27 @@ await fetchBlynkStatus({ force: true });
             <section style={styles.categoryPanel}>
               <SectionTitle
                 title="Energy"
-                subtitle="Energy estimation and sustainability-related indicators."
+                subtitle="Energy estimation and sustainability indicators."
               />
 
               <div style={styles.categoryGrid}>
                 <MiniInsight
                   title="Energy Used"
                   value={`${formatNumber(blynkEnergyUsed, 3)} Wh`}
-                  description="Estimated energy used in current stats window"
+                  description="Estimated energy used"
                 />
 
                 <MiniInsight
                   title="Energy Saved"
                   value={`${formatNumber(blynkEnergySaved, 0)}%`}
-                  description="Energy saving compared with always-on baseline"
+                  description="Compared with always-on baseline"
                   color="#22c55e"
                 />
 
                 <MiniInsight
                   title="Fan Power"
                   value={`${formatNumber(blynkFanPowerW, 2)} W`}
-                  description="Fan power setting from Blynk V21"
+                  description="Fan power parameter"
                 />
 
                 <MiniInsight
@@ -1543,7 +1552,7 @@ await fetchBlynkStatus({ force: true });
             <section style={styles.categoryPanel}>
               <SectionTitle
                 title="Prediction"
-                subtitle="Short-term PM2.5 prediction calculated from recent sensor history."
+                subtitle="Short-term PM2.5 prediction from recent sensor history."
               />
 
               <div style={styles.categoryGrid}>
@@ -1557,14 +1566,14 @@ await fetchBlynkStatus({ force: true });
                 <MiniInsight
                   title="Prediction Trend"
                   value={blynkPredTrend}
-                  description="Rising, falling, or stable trend prediction"
+                  description="Rising, falling, or stable trend"
                   color={getTrendColor(blynkPredTrend)}
                 />
 
                 <MiniInsight
                   title="Prediction Status"
                   value={blynkPredStatus}
-                  description="Short-term risk status from Arduino"
+                  description="Short-term risk status"
                   color={
                     blynkPredStatus === "LIKELY SAFE" ||
                     blynkPredStatus === "IMPROVING"
@@ -1580,14 +1589,14 @@ await fetchBlynkStatus({ force: true });
             <section style={styles.categoryPanel}>
               <SectionTitle
                 title="System Health"
-                subtitle="Status values used to verify sensor, filter, fan, and overall system state."
+                subtitle="Sensor, filter, fan, and overall system state."
               />
 
               <div style={styles.categoryGrid}>
                 <MiniInsight
                   title="Filter Health"
                   value={`${blynkFilterHealth}%`}
-                  description="Remaining filter health based on fan runtime"
+                  description="Remaining filter health based on runtime"
                   color={
                     blynkFilterHealth >= 70
                       ? "#22c55e"
@@ -1601,25 +1610,30 @@ await fetchBlynkStatus({ force: true });
                   title="Sensor Status"
                   value={blynkSensorStatus}
                   description="PMS5003 sensor connection status"
-                  color={blynkSensorStatus === "OK" ? "#22c55e" : "#ef4444"}
+                  color={blynkSensorStatus === "OK" ? "#22c55e" : "#facc15"}
                 />
 
                 <MiniInsight
                   title="System Status"
                   value={blynkSystemStatus}
-                  description="Overall operating status from Arduino"
+                  description="Overall operating status"
                 />
 
                 <MiniInsight
-                  title="Alert Limit"
-                  value={`${blynkAlertLimit} µg/m³`}
-                  description="PM2.5 level used for alert triggering"
+                  title="Device Online"
+                  value={deviceOnline ? "Online" : "Offline"}
+                  description={
+                    deviceAgeSeconds === null
+                      ? "Waiting for telemetry"
+                      : `Last telemetry: ${deviceAgeSeconds}s ago`
+                  }
+                  color={deviceOnline ? "#22c55e" : "#facc15"}
                 />
 
                 <MiniInsight
                   title="Custom Mode"
                   value={isCustomMode ? "Active" : "Inactive"}
-                  description="Shows whether Arduino is using V7 threshold logic"
+                  description="Shows whether Arduino is using custom threshold logic"
                   color={isCustomMode ? "#22c55e" : "#facc15"}
                 />
               </div>
@@ -1632,8 +1646,7 @@ await fetchBlynkStatus({ force: true });
                     Advanced Performance Summary
                   </h2>
                   <p style={styles.sectionSubtitle}>
-                    This section contains insights that are more advanced than a
-                    typical air purifier display.
+                    Summary generated from Arduino telemetry and backend data.
                   </p>
                 </div>
 
@@ -1678,7 +1691,7 @@ await fetchBlynkStatus({ force: true });
             </section>
 
             <section style={styles.panel}>
-              <h2 style={styles.sectionTitle}>Blynk Sensor Log</h2>
+              <h2 style={styles.sectionTitle}>Sensor Log</h2>
               <p style={styles.sectionSubtitle}>
                 Latest PM2.5, AQI, fan status, operating mode, performance
                 metrics, energy data, and prediction status.
@@ -1693,7 +1706,7 @@ await fetchBlynkStatus({ force: true });
                       <th style={styles.th}>AQI</th>
                       <th style={styles.th}>Fan</th>
                       <th style={styles.th}>Mode</th>
-                      <th style={styles.th}>V7 Threshold</th>
+                      <th style={styles.th}>Threshold</th>
                       <th style={styles.th}>Efficiency</th>
                       <th style={styles.th}>CADR</th>
                       <th style={styles.th}>Removal Rate</th>
@@ -1703,38 +1716,34 @@ await fetchBlynkStatus({ force: true });
                   </thead>
 
                   <tbody>
-                    {[...data].reverse().map((item, index) => {
-                      return (
-                        <tr key={`${item.time}-${index}`}>
-                          <td style={styles.td}>{item.time}</td>
-                          <td style={styles.td}>{item.pm25} µg/m³</td>
-                          <td style={styles.td}>{item.aqi}</td>
-                          <td style={styles.td}>
-                            {item.fanStatus === 1 ? "ON" : "OFF"}
-                          </td>
-                          <td style={styles.td}>
-                            {getModeText(item.modeSelect)}
-                          </td>
-                          <td style={styles.td}>
-                            {item.customThreshold ?? customThreshold} µg/m³
-                          </td>
-                          <td style={styles.td}>{item.efficiency ?? 0}%</td>
-                          <td style={styles.td}>
-                            {formatNumber(item.cadrEstimate ?? 0, 1)} m³/h
-                          </td>
-                          <td style={styles.td}>
-                            {formatNumber(item.removalRate ?? 0, 2)} µg/m³/min
-                          </td>
-                          <td style={styles.td}>
-                            {formatNumber(item.energySaved ?? 0, 0)}%
-                          </td>
-                          <td style={styles.td}>
-                            {item.predTrend ?? "NO DATA"} /{" "}
-                            {item.predStatus ?? "INSUFFICIENT DATA"}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {[...data].reverse().map((item, index) => (
+                      <tr key={`${item.time}-${index}`}>
+                        <td style={styles.td}>{item.time}</td>
+                        <td style={styles.td}>{item.pm25} µg/m³</td>
+                        <td style={styles.td}>{item.aqi}</td>
+                        <td style={styles.td}>
+                          {item.fanStatus === 1 ? "ON" : "OFF"}
+                        </td>
+                        <td style={styles.td}>{getModeText(item.modeSelect)}</td>
+                        <td style={styles.td}>
+                          {item.customThreshold ?? customThreshold} µg/m³
+                        </td>
+                        <td style={styles.td}>{item.efficiency ?? 0}%</td>
+                        <td style={styles.td}>
+                          {formatNumber(item.cadrEstimate ?? 0, 1)} m³/h
+                        </td>
+                        <td style={styles.td}>
+                          {formatNumber(item.removalRate ?? 0, 2)} µg/m³/min
+                        </td>
+                        <td style={styles.td}>
+                          {formatNumber(item.energySaved ?? 0, 0)}%
+                        </td>
+                        <td style={styles.td}>
+                          {item.predTrend ?? "NO DATA"} /{" "}
+                          {item.predStatus ?? "INSUFFICIENT DATA"}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1795,7 +1804,7 @@ await fetchBlynkStatus({ force: true });
               <MiniInsight
                 title="Data Points"
                 value={experimentSummary.dataPoints}
-                description="Readings recorded in this experiment"
+                description="Readings recorded"
               />
 
               <MiniInsight
@@ -1959,7 +1968,7 @@ const styles = {
 
   tagline: {
     margin: "2px 0 0",
-    maxWidth: "520px",
+    maxWidth: "560px",
     fontSize: "14px",
     lineHeight: 1.3,
     fontWeight: 700,
@@ -2084,7 +2093,7 @@ const styles = {
     alignItems: "start",
     border: "1px solid rgba(255,255,255,0.25)",
     borderRadius: "18px",
-   padding: "14px",
+    padding: "14px",
   },
 
   alertIcon: {
@@ -2159,7 +2168,6 @@ const styles = {
     borderRadius: "22px",
     padding: "22px",
     boxShadow: "0 24px 60px rgba(0,0,0,0.18)",
-    transition: "transform 0.18s ease, border-color 0.18s ease",
   },
 
   cardLabel: {
@@ -2173,7 +2181,6 @@ const styles = {
 
   cardValue: {
     margin: "10px 0 6px",
-    fontFamily: '"Space Grotesk", Arial, sans-serif',
     fontSize: "34px",
     fontWeight: 700,
     letterSpacing: "-0.5px",
@@ -2284,6 +2291,7 @@ const styles = {
     display: "grid",
     gridTemplateColumns: "repeat(3, 1fr)",
     gap: "18px",
+    marginBottom: "18px",
   },
 
   miniInsight: {
@@ -2292,7 +2300,6 @@ const styles = {
     borderRadius: "22px",
     padding: "22px",
     boxShadow: "0 24px 60px rgba(0,0,0,0.18)",
-    transition: "transform 0.18s ease, border-color 0.18s ease",
   },
 
   miniValue: {
